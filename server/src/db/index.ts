@@ -58,6 +58,7 @@ export function initDb(dbPath?: string): Database.Database {
   migrateModelsV20KiloFree(db);
   migrateModelsV21PruneDead(db);
   migrateModelsV22Tools(db);
+  migrateModelsV23FreeTierAudit(db);
   // After all model migrations: add/refresh paid-equivalent pricing
   // (drives the realistic "Est. savings" analytics stat).
   applyModelPricing(db);
@@ -1401,6 +1402,14 @@ function migrateModelsV16Vision(db: Database.Database) {
       WHERE platform = 'github'
         AND (model_id LIKE '%gpt-4o%' OR model_id LIKE '%gpt-4.1%' OR model_id LIKE '%gpt-5%')
     `).run();
+    // V23 vision additions, both live-probed 2026-06-07 (answered a color
+    // question about an inline data-URL PNG): Zhipu's free GLM-4.6V Flash and
+    // NVIDIA's Nemotron Nano 12B v2 VL (via OpenRouter).
+    db.prepare(`
+      UPDATE models SET supports_vision = 1
+      WHERE LOWER(model_id) LIKE '%glm-4.6v%'
+         OR LOWER(model_id) LIKE '%nemotron-nano-12b-v2-vl%'
+    `).run();
   });
   apply();
 }
@@ -1698,7 +1707,8 @@ function migrateModelsV22Tools(db: Database.Database) {
       WHERE (
            LOWER(model_id) LIKE '%gpt-oss%'        -- groq/OR/cerebras/CF/sambanova/ollama; incl. safeguard (tool-tuned)
         OR ((LOWER(model_id) LIKE '%llama-3%' OR LOWER(model_id) LIKE '%llama-4%')
-            AND LOWER(model_id) NOT LIKE '%hermes%') -- Llama 3.x/4 native tools; hermes-3-llama emits text tool calls
+            AND LOWER(model_id) NOT LIKE '%hermes%'   -- hermes-3-llama emits text tool calls
+            AND LOWER(model_id) NOT LIKE '%llama-3.2%') -- 3B route declares no tool support (V23)
         OR LOWER(model_id) LIKE '%gemini-%'        -- every Gemini; gemma intentionally NOT matched
         OR LOWER(model_id) LIKE '%glm-%'           -- GLM 4.5+/5.x are agentic-tuned (zai/zhipu/CF/ollama)
         OR LOWER(model_id) LIKE '%qwen3%'
@@ -1719,8 +1729,84 @@ function migrateModelsV22Tools(db: Database.Database) {
         OR LOWER(model_id) LIKE '%gpt-4.1%'
         OR LOWER(model_id) LIKE '%gpt-5%'
         OR LOWER(model_id) LIKE '%nemotron-3-super%' -- benchmarked #8 with real tool calls; nano stays excluded
+        OR LOWER(model_id) LIKE '%nemotron-nano-12b-v2-vl%' -- unlike the 30B nano: live-probed structured tool_calls (V23, 2026-06-07)
       )
     `).run();
+  });
+  apply();
+}
+
+/**
+ * V23 (June 2026): recurring-free audit — drop SambaNova + Chutes, add
+ * live-verified free models (all probed 2026-06-07 with production keys).
+ *
+ * Removed platforms (models, fallback rows, AND key rows; earlier migrations
+ * re-insert the model rows on every boot, so this later DELETE is what keeps
+ * them out — same pattern as V21):
+ *   - sambanova: free tier is gone for good. The always-free tier was retired
+ *     in early 2025 ("We do not have any current plans to maintain the free
+ *     tier in any state" — staff, community.sambanova.ai/t/847) in favor of a
+ *     one-time $5 trial credit that expires in 3 months. Once it lapses with
+ *     no card on file, every chat call 402s "payment method required" — live
+ *     probe confirmed on all 6 models, while /v1/models still 200s (billing
+ *     gate, not a key problem). No recurring no-card path remains.
+ *   - chutes: never a registered provider — rows were hand-added during the
+ *     V11 evaluation. The Early Access free plan (200 req/day) fully retired
+ *     2026-03-15 (chutes.ai/news/community-announcement-february); PAYG and
+ *     paid subs only now, so V11's drop verdict is permanent.
+ *
+ * Added:
+ *   - openrouter kimi-k2.6:free — chat probed 200; tools flagged via the V22
+ *     %kimi-k2% family rule (the tool probe itself only hit upstream 429s —
+ *     it's a popular new route — but K2 is tool-native everywhere we run it).
+ *   - openrouter nemotron-nano-12b-v2-vl:free — structured tool_calls AND
+ *     vision both live-verified; V16/V22 rules added.
+ *   - zhipu glm-4.6v-flash — listed "Free" on Z.AI pricing; 200 with our
+ *     existing bigmodel.cn key; structured tool_calls + vision verified.
+ *   - openrouter nemotron-3-ultra-550b-a55b:free — 1M ctx, currently the
+ *     biggest free model anywhere, but generation takes 180s+ even on trivial
+ *     prompts (heavily congested), so it's seeded enabled=0. Flip it on when
+ *     it serves sanely — and verify tools then (declared by OpenRouter, but
+ *     unverifiable while it hangs, so V22 deliberately has no rule for it).
+ *   - openrouter llama-3.2-3b-instruct:free and
+ *     dolphin-mistral-24b-venice-edition:free — both heavily contended
+ *     (persistent upstream 429s at probe time) but real routes; no tools.
+ *   - NOT added: nvidia/nemotron-3.5-content-safety:free — it's a safety
+ *     classifier, not a chat model: probe returned content:null with a "User
+ *     Safety: safe/unsafe" verdict in reasoning, which would surface as empty
+ *     responses whenever the fallback chain landed on it.
+ *
+ * Idempotent: DELETEs re-run harmlessly; INSERT OR IGNORE means the ultra
+ * row's enabled=0 is seed-only, so a dashboard re-enable sticks across boots.
+ * vision/tools seeds match the V16/V22 rules (which re-assert next boot);
+ * tiers match V17's bands.
+ */
+function migrateModelsV23FreeTierAudit(db: Database.Database) {
+  const apply = db.transaction(() => {
+    for (const platform of ['sambanova', 'chutes']) {
+      db.prepare(`
+        DELETE FROM fallback_config WHERE model_db_id IN (
+          SELECT id FROM models WHERE platform = ?
+        )
+      `).run(platform);
+      db.prepare('DELETE FROM models WHERE platform = ?').run(platform);
+      db.prepare('DELETE FROM api_keys WHERE platform = ?').run(platform);
+    }
+
+    const insert = db.prepare(`
+      INSERT OR IGNORE INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, size_label, rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window, enabled, supports_vision, supports_tools)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const additions: Array<[string, string, string, number, number, string, number | null, number | null, number | null, number | null, string, number | null, number, number, number]> = [
+      ['openrouter', 'moonshotai/kimi-k2.6:free',                                     'Kimi K2.6 (OR free)',                 3, 9,  'Frontier', 20, 200, null, null, '~6M',  262144,  1, 0, 1],
+      ['openrouter', 'nvidia/nemotron-3-ultra-550b-a55b:free',                        'Nemotron 3 Ultra 550B (free, slow)',  7, 11, 'Frontier', 20, 200, null, null, '~6M',  1000000, 0, 0, 0],
+      ['openrouter', 'nvidia/nemotron-nano-12b-v2-vl:free',                           'Nemotron Nano 12B VL (free)',        26, 9,  'Medium',   20, 200, null, null, '~6M',  128000,  1, 1, 1],
+      ['openrouter', 'meta-llama/llama-3.2-3b-instruct:free',                         'Llama 3.2 3B (free)',                30, 9,  'Small',    20, 200, null, null, '~6M',  131072,  1, 0, 0],
+      ['openrouter', 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free', 'Dolphin Mistral 24B Venice (free)',  25, 9,  'Medium',   20, 200, null, null, '~6M',  32768,   1, 0, 0],
+      ['zhipu',      'glm-4.6v-flash',                                                'GLM-4.6V Flash',                     21, 4,  'Large',    null, null, null, null, '~30M', 131072,  1, 1, 1],
+    ];
+    for (const a of additions) insert.run(...a);
+    backfillFallback(db);
   });
   apply();
 }

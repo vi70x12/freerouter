@@ -138,8 +138,14 @@ export const MODEL_PRICING: PricingRow[] = [
   ['opencode', 'nemotron-3-super-free', 0.09, 0.45],
 
   // OpenRouter :free pools (priced at the same model's paid variant)
+  // V23 additions snapshot the OpenRouter pricing API on 2026-06-07.
+  ['openrouter', 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free', null, null], // free-only route
   ['openrouter', 'google/gemma-4-26b-a4b-it:free', 0.06, 0.33],
   ['openrouter', 'google/gemma-4-31b-it:free', 0.12, 0.37],
+  ['openrouter', 'meta-llama/llama-3.2-3b-instruct:free', 0.05, 0.34],
+  ['openrouter', 'moonshotai/kimi-k2.6:free', 0.684, 3.42],
+  ['openrouter', 'nvidia/nemotron-3-ultra-550b-a55b:free', 0.50, 2.50],
+  ['openrouter', 'nvidia/nemotron-nano-12b-v2-vl:free', null, null], // no paid variant listed
   // LFM 2.5 1.2B has no paid listing; tiny-model estimate
   ['openrouter', 'liquid/lfm-2.5-1.2b-instruct:free', 0.01, 0.04],
   ['openrouter', 'liquid/lfm-2.5-1.2b-thinking:free', 0.01, 0.04],
@@ -164,16 +170,12 @@ export const MODEL_PRICING: PricingRow[] = [
   // Pollinations (serves gpt-oss-20b)
   ['pollinations', 'openai-fast', 0.029, 0.14],
 
-  // SambaNova
-  ['sambanova', 'DeepSeek-V3.1', 0.21, 0.79],
-  ['sambanova', 'DeepSeek-V3.2', 0.229, 0.343],
-  ['sambanova', 'Llama-4-Maverick-17B-128E-Instruct', 0.15, 0.60],
-  ['sambanova', 'Meta-Llama-3.3-70B-Instruct', 0.10, 0.32],
-  ['sambanova', 'gemma-3-12b-it', 0.04, 0.13],
-  ['sambanova', 'gpt-oss-120b', 0.039, 0.18],
+  // SambaNova rows were removed in V23 (platform dropped — free tier retired).
 
-  // Zhipu (4.5-flash estimated at the 4.7-flash rate — no paid 4.5-flash)
+  // Zhipu (4.5-flash estimated at the 4.7-flash rate — no paid 4.5-flash;
+  // 4.6v-flash priced at OpenRouter's paid z-ai/glm-4.6v)
   ['zhipu', 'glm-4.5-flash', 0.06, 0.40],
+  ['zhipu', 'glm-4.6v-flash', 0.30, 0.90],
   ['zhipu', 'glm-4.7-flash', 0.06, 0.40],
 ];
 

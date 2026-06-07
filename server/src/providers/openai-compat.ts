@@ -8,7 +8,7 @@ import { BaseProvider, type CompletionOptions } from './base.js';
 
 /**
  * Generic provider for platforms that use an OpenAI-compatible API.
- * Covers: Groq, Cerebras, SambaNova, NVIDIA NIM, Mistral, OpenRouter,
+ * Covers: Groq, Cerebras, NVIDIA NIM, Mistral, OpenRouter,
  * GitHub Models, Fireworks AI.
  */
 export class OpenAICompatProvider extends BaseProvider {
