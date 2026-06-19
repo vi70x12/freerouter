@@ -683,7 +683,7 @@ export default function FallbackPage() {
 
   // Merge performance data with entries
   const entriesWithPerformance = useMemo(() => {
-    const performanceMap = new Map(performanceData.map(p => p.modelDbId));
+    const performanceMap = new Map(performanceData.map(p => [p.modelDbId, p]));
     return entries.map(entry => ({
       ...entry,
       ...performanceMap.get(entry.modelDbId)
