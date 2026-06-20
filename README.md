@@ -4,7 +4,7 @@
 
 **One endpoint. Any provider. Every free tier. Smart routing that learns.**
 
-> Fork of [tashfeenahmed/freellmapi](https://github.com/tashfeenahmed/freellmapi). What follows is only what FreeRouter does differently.
+> Fork of [MLuqmanBR/api-gateway](https://github.com/MLuqmanBR/api-gateway) (which itself forks [tashfeenahmed/freellmapi](https://github.com/tashfeenahmed/freellmapi)). What follows is only what FreeRouter adds on top of api-gateway.
 
 <img width="256" height="384" alt="kawaii anima-chan" src="https://github.com/user-attachments/assets/992ae2fc-0473-40c9-b99b-cea7840b6543" />
 
@@ -24,80 +24,59 @@
 
 ## What FreeRouter adds
 
+Everything below is **on top of** [MLuqmanBR/api-gateway](https://github.com/MLuqmanBR/api-gateway) — which already ships OpenAI-compatible routing, Thompson-sampling bandits, per-key rate tracking, recovery, custom provider CRUD, context handoff, encrypted storage, dark-mode dashboard, Docker support, and more. If it's not listed here, api-gateway already has it.
+
 ### Routing & Resilience
 
 | Feature | What | Why it matters |
-|---|---|---|
-| **Thompson-sampling bandit routing** | Learns which providers deliver; presets: balanced, smartest-first, fastest-first, reliability-first. Falls back to classic priority if you prefer. | Routes to the best model *right now*, not whatever's top of a handwritten list. Gets smarter over time. |
-| **Per-key rate tracking** | RPM / RPD / TPM / TPD per `(platform, model, key)` — checked *before* the request goes out. | The router cycles through keys intelligently instead of panicking when the first one hits a limit. |
-| **Per-key exhaustion recovery** | 3 retries per key → key cycling → 1-RPM recovery mode that probes keys until one comes back. | Your IDE never sees an error. Even when every key hits its daily cap, the system recovers on its own. |
-| **Per-provider parallel request gating** | `maxParallelRequests` per provider caps concurrency. | A slow local model can't starve Groq of connection slots. |
-| **Dynamic Degradation** | Severity-weighted progressive penalties: 429 (minor, 2min half-life), 5xx (major, 15min), consecutive hard failures (critical, 60min). Compounding exponential penalties with a sigmoid degradation factor. Dashboard-visible + env-configurable. | Replaces upstream's flat `rateLimitFactor`. Providers that fail a lot get progressively deprioritized — not just flatly penalized. |
-| **Strict model pinning** | Pinned models stay pinned — no silent fallback to a different model on error. | When you ask for a specific model, you get that model. No surprises. |
-| **Sticky sessions** | 30-min session affinity across multi-turn conversations. | Avoids the hallucination spike that comes from mid-conversation model switches. |
-| **Context handoff** | Injects a compact system message when the router switches models mid-conversation. Opt-in via `API_GATEWAY_CONTEXT_HANDOFF=on_model_switch`. | The new model picks up where the last one left off instead of starting fresh. |
-
-### Custom Providers & Model Management
-
-| Feature | What | Why it matters |
-|---|---|---|
-| **Custom provider CRUD** | Add any OpenAI-compatible endpoint (local Ollama, vLLM, any cloud service) from the dashboard. Full add / edit / archive-delete. Models auto-discovered from `/v1/models`. | You can bring your paid APIs, local models, and any free-tier service — all routed through the same fallback chain. |
-| **Keyless custom providers** | No API key required for local servers that don't need auth. | Local Ollama, llama.cpp, LM Studio — just add the URL. |
-| **Edit any model's properties** | Built-in *and* custom models are fully editable: intelligence rank, speed, context window, max tokens, tools/vision flags, rate limits. | Upstream locks built-in models. If you know your local Mixtral runs smarter, bump its score — take effect immediately, no restart. |
-| **Model visibility matches reality** | `/v1/models` only returns models with active, healthy keys. | Your IDE's model picker only shows models you can actually call. No more errors from picking a dead endpoint. |
-| **Live model filter** | Search / filter on the Models page with punctuation normalization. | Find the model you want in a 100+ model catalog without squinting. |
-| **Enabled rows float to top** | In the fallback chain, disabled models sink to the bottom. | Your active models stay visible; disabled ones don't clutter the top. |
-| **Archive instead of hard-delete** | Custom providers and models get archived, not destroyed. Restorable. | No more "I deleted the wrong thing." Undo is always available. |
+|---------|------|---------------|
+| **Dynamic Degradation** | Severity-weighted progressive penalties replacing the flat `rateLimitFactor`. 429 → minor (2 min half-life), 5xx → major (15 min), consecutive hard failures → critical (60 min). Compounding exponential penalties + sigmoid degradation factor. Dashboard-visible + env-configurable. | Flat rate-limit penalties can't distinguish a polite retry from a burning server. Degradation matches the penalty to the problem. *(spec: `docs/specs/dynamic-degradation/`)* |
+| **Strict model pinning** | When you pin a model, it stays pinned — even on error. | Upstream silently falls through to a different model on failure, which breaks workflows that depend on a specific model's behaviour. |
+| **Free-only enforcement** | OpenRouter and OpenCode routes restricted to `:free` models only. Monthly token budget system removed in favour of simpler quotas. | FreeRouter is about stacking free tiers; accidentally hitting a paid endpoint through those routes costs real money. |
+| **Keyless custom providers** | Local servers that don't need auth can be added without a key. | Upstream requires a key for every provider — a blocker for self-hosted/Ollama-style endpoints that have no auth layer. |
+| **Archive instead of hard-delete** | Custom providers and models get archived (restorable), not cascade-deleted. | Upstream cascade-deletes on removal. One misclick and your whole custom provider config is gone. Archive is reversible. |
 
 ### Benchmarks & Intelligence
 
 | Feature | What | Why it matters |
-|---|---|---|
-| **Benchmark Unification** | Merges Artificial Analysis, SWE-rebench, and NIMStats into a single composite intelligence score. Per-source columns, canonical model keys, incremental recomputation, configurable weights. | Upstream has no benchmark integration. Router scores reflect real-world benchmarks, not hand-tuned guesses. |
-| **Free-only enforcement** | OpenRouter and OpenCode routes restricted to `:free` models only. Monthly token budget system removed in favor of simpler, more honest quotas. | No surprises on a "free" tier that suddenly charges. What's free stays free. |
-| **Reasoning token fairness** | `tokPerSec` speed score includes reasoning/thinking tokens. | Upstream doesn't count reasoning tokens — reasoning models get unfairly penalized for thinking time. This levels the field. |
+|---------|------|---------------|
+| **Benchmark Unification** | Merges Artificial Analysis, SWE-rebench, and NIMStats into a single composite intelligence score. Per-source columns, canonical model keys, incremental recomputation, configurable weights. | Upstream has no benchmark integration. A single composite score replaces guessing which single benchmark to trust. *(spec: `docs/specs/benchmark-unification/`)* |
+| **SWE-rebench for intelligence** | Replaced SWE-bench with SWE-rebench for model intelligence scoring. | SWE-rebench is a more reliable, less-contaminated benchmark for real-world coding ability. |
+| **Reasoning token fairness** | `tokPerSec` speed score includes reasoning/thinking tokens so reasoning models aren't unfairly penalised. | Upstream doesn't count reasoning tokens in speed calc — a thinking model that outputs 100 tok/s of reasoning + 30 tok/s of visible text looks "slower" than a 40 tok/s non-reasoning model. Unfair. *(spec: `docs/specs/reasoning-speed-fairness.md`)* |
 
 ### Provider Support
 
 | Feature | What | Why it matters |
-|---|---|---|
-| **CommandCode provider** | Built-in with full NDJSON translation layer. | Provider upstream doesn't ship. |
-| **NVIDIA NIM adapter hardening** | Robust handling of NIM-specific quirks. | NIM's API has non-standard behaviors that break naïve adapters. |
-| **OpenAI Responses API** | `POST /v1/responses` — a translating shim for Codex CLI, with full streaming events and tool calls. | Upstream only has chat completions. Codex CLI works out of the box. |
-| **End-to-end thinking/reasoning** | `reasoning_content` deltas, Gemini thought signatures, thinking block passthrough across all providers. | Reasoning models work correctly everywhere. Thinking tokens don't get silently dropped. |
-| **Vision-aware routing** | Image requests auto-restrict to vision-capable models; 422 if none available. | No silent image drops. If you send an image, it goes to a model that can see it — or you get a clear error. |
-| **Embeddings with family-based failover** | `/v1/embeddings` never crosses model families (different dimensions = incompatible). Dashboard config for families. | Failover won't silently corrupt your vector store by switching to a model with different embedding dimensions. |
-| **Cloud Proxy** | Optional Cloudflare Workers proxy layer for IP rotation and header stripping. `npm run proxy:deploy` one-command deploy. | Route requests through distributed exit IPs so providers see clean, non-identifying addresses. Entirely opt-in. |
+|---------|------|---------------|
+| **CommandCode provider** | Full NDJSON translation layer, built-in. | Upstream doesn't ship it. CommandCode has a non-standard streaming format that needs a dedicated adapter. |
+| **NVIDIA NIM hardening** | Robust handling of NIM-specific API quirks. | NIM's API diverges from the OpenAI spec in subtle ways; without hardening, requests silently fail or return malformed data. |
+| **End-to-end thinking/reasoning passthrough** | `reasoning_content` deltas, Gemini thought signatures, thinking block handling across all providers. | Reasoning models (DeepSeek, Gemini, etc.) emit thinking tokens that must be preserved end-to-end, not silently dropped. |
+| **`max_output_tokens` fallback** | Uses catalog `max_output_tokens` as `max_tokens` fallback when the request doesn't specify. | Prevents truncation when a client omits `max_tokens` but the provider enforces a default cap. |
 
 ### Dashboard & UX
 
 | Feature | What | Why it matters |
-|---|---|---|
-| **Model editing UI** | Edit all model properties from the dashboard — built-in or custom. | No config files, no restarts. Changes take effect immediately. |
-| **Custom provider management UI** | Full CRUD from the dashboard. Auto-discover models on creation. | Your entire setup is managed from one place, one UI, one workflow. |
-| **Embeddings family config** | Dashboard page for family management. | Configure which model families exist and who serves them, without touching code. |
-| **Settings page** | Dashboard settings panel. | Central place for configuration instead of editing `.env` and restarting. |
-| **Toast notifications** | E.g. when auto-discovery adds new models. | You know when something changes without checking logs. |
-| **Provider error redaction** | Sensitive error messages from providers are stripped before reaching the client. | Provider responses sometimes leak key fragments, account IDs, or internal URLs. FreeRouter strips those. |
-| **Tool call repair** | Automatic fix for common JSON Schema mismatches and inline tool-call dialects. | Fewer broken tool loops. Slightly malformed tool calls get corrected instead of failing. |
-| **Dark mode** | Dashboard dark theme. | Because staring at a white dashboard at 2 AM is unnecessary suffering. |
+|---------|------|---------------|
+| **Live model filter** | Search/filter on Models page with punctuation normalisation (`kimi k2.6` → `kimi-k2.6`). | Model names are inconsistent across providers; normalised search actually finds what you're looking for. |
+| **Enabled rows float to top** | In the fallback chain, disabled models sink to the bottom. | Long chains are hard to scan when disabled entries clutter the top; float makes the active set visible at a glance. |
+| **Toast notifications** | e.g. when auto-discovery adds new models. | Silent model additions are confusing — "where did that come from?" Toasts make changes visible. |
 
 ### Infrastructure
 
 | Feature | What | Why it matters |
-|---|---|---|
-| **`api` CLI** | `api start`, `api stop`, `api status`, multi-instance tracking. | Upstream has no CLI. Manage FreeRouter from the terminal without remembering npm scripts. |
-| **Server log rotation** | Prevents disk fill from unbounded logs. | Long-running servers don't silently fill your disk. |
-| **DeepSource test coverage reporting** | Integrated coverage pipeline. | Coverage visibility without wiring it up yourself. |
+|---------|------|---------------|
+| **`api` CLI** | `api start`, `api stop`, `api status`, multi-instance tracking, log rotation. | Upstream has no CLI. Running the server means remembering `node server/dist/index.js` flags. |
+| **Server log rotation** | Prevents disk fill from unbounded logs. | Long-running instances silently eat disk until something breaks. |
+| **DeepSource coverage** | Integrated test-coverage reporting pipeline. | Continuous coverage visibility catches regressions before merge. |
 
 ## In Development
 
-These are spec'd and in progress — see `docs/specs/` for details:
-
-- **Benchmark Unification** — merging AA / SWE-rebench / NIMStats into unified intelligence scores
-- **Dynamic Degradation** — severity-weighted progressive failure penalties
-- **FreeLLMProxy Integration** — `npm run proxy:deploy` → upcoming `proxy:up` zero-config Cloudflare Workers deployment
-- **Reasoning Token Fairness** — speed scores that count thinking tokens
+| Spec | Status |
+|------|--------|
+| `docs/specs/dynamic-degradation/` | Implemented, dashboard controls pending polish |
+| `docs/specs/benchmark-unification/` | Composite scorer live, incremental recomputation in progress |
+| `docs/specs/reasoning-speed-fairness.md` | Reasoning tokens counted in `tokPerSec`; per-model toggle pending |
+| `docs/specs/freellmproxy-integration/` | `npm run proxy:up` zero-config deploy replacing `proxy:deploy` |
 
 ## Quick Start
 
@@ -165,8 +144,10 @@ FreeRouter ships an **optional** Cloudflare Workers proxy layer for IP rotation 
 **Prerequisites:** [wrangler](https://developers.cloudflare.com/workers/wrangler/) installed and logged in. Either install globally (`npm i -g wrangler && wrangler login`) or use the devDependency bundled in the proxy submodule (`cd freellmproxy && npx wrangler login`).
 
 ```bash
-npm run proxy:deploy    # upcoming: npm run proxy:up
+npm run proxy:deploy
 ```
+
+> **Upcoming:** `npm run proxy:up` will replace `proxy:deploy` with a zero-config deploy flow. See `docs/specs/freellmproxy-integration/`.
 
 On first run this automatically:
 1. Initializes the `freellmproxy` git submodule
@@ -549,7 +530,7 @@ Rules of thumb: **one account per provider**, **no reselling**, **no sharing you
 
 ***
 
-Built on [tashfeenahmed/freellmapi](https://github.com/tashfeenahmed/freellmapi). Fork maintained by [animaios](https://github.com/animaios).
+Built on [MLuqmanBR/api-gateway](https://github.com/MLuqmanBR/api-gateway) (itself a fork of [tashfeenahmed/freellmapi](https://github.com/tashfeenahmed/freellmapi)). Maintained by [animaios](https://github.com/animaios).
 
 ## License
 
