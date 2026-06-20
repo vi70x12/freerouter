@@ -28,7 +28,7 @@ interface LogEntry {
 
 const MAX_LOG_LINES = 200;
 
-function formatEvent(evt: LiveEvent): LogEntry {
+function formatEvent(evt: LiveEvent): LogEntry | null {
   const ts = evt.at;
   const rId = evt.id?.slice(0, 8) ?? '';
   switch (evt.type) {
@@ -51,8 +51,10 @@ function formatEvent(evt: LiveEvent): LogEntry {
         return { id: evt.id || 'hb', ts, kind: 'info', text: `♥ [heartbeat] ${evt.provider}/${evt.model} healthy (${evt.latencyMs}ms)` };
       }
       return { id: evt.id || 'hb', ts, kind: 'warn', text: `♥ [heartbeat] ${evt.provider}/${evt.model} FAILED: ${evt.error?.slice(0, 60) ?? 'unknown'}` };
+    case 'heartbeat.cycle_skipped':
+      return null; // Intentionally not rendered (too noisy for live feed)
   }
-}
+  return null;
 
 function timeLabel(ts: number): string {
   const d = new Date(ts);
@@ -80,15 +82,15 @@ export function LiveEvents() {
         const evt = JSON.parse(msg.data) as LiveEvent;
         const entry = formatEvent(evt);
 
-        if (evt.type === 'request.start') {
+        if (evt.type === 'request.start' && evt.id) {
           activeRef.current.add(evt.id);
           setActiveCount(activeRef.current.size);
-        } else if (evt.type === 'request.done' || evt.type === 'request.error') {
+        } else if ((evt.type === 'request.done' || evt.type === 'request.error') && evt.id) {
           activeRef.current.delete(evt.id);
           setActiveCount(activeRef.current.size);
         }
 
-        addLine(entry);
+        if (entry) addLine(entry);
       } catch { /* malformed event — skip */ }
     };
     es.onerror = () => {
