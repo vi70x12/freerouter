@@ -14,8 +14,8 @@ import { getDb } from './index.js';
  *
  * FORMAT: [model_id_pattern (lowercase, LIKE match), score]
  *
- * The applyBenchmarkScores() function runs on every boot (idempotent UPDATE),
- * same pattern as applyModelPricing(). This ensures newly auto-synced models
+ * The applyBenchmarkScores() function runs on every boot (idempotent UPDATE).
+ * This ensures newly auto-synced models
  * from any provider pick up their score automatically.
  */
 
@@ -361,7 +361,7 @@ export function lookupBenchmarkScore(modelId: string): number {
 // ─── DB APPLICATION ─────────────────────────────────────────────────────────
 /**
  * Apply benchmark scores to every model that matches a known pattern.
- * Runs on every boot (idempotent UPDATE, same pattern as applyModelPricing).
+ * Runs on every boot (idempotent UPDATE).
  *
  * Also auto-sets size_label and intelligence_rank for models that have
  * benchmark_score populated but still carry the default "Custom" or empty

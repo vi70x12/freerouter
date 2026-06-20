@@ -90,37 +90,6 @@ export default function AnalyticsPage() {
     queryFn: () => apiFetch<{ byCategory: any[]; byPlatform: any[]; detailed: any[] }>(`/api/analytics/error-distribution?range=${range}`),
   })
 
-  // Savings card shows ONE stable monthly figure regardless of the selected
-  // range: the last-30-days data projected to a full month from its actual
-  // span (a young install with 2 days of data shows 15x its 2-day total).
-  // Once 30 days of history exist the real total shows as-is. The hover
-  // hint carries the selected period's actual amount and the projection
-  // basis. Querying 30d separately is free: react-query shares the cache
-  // with the 30d tab.
-  const { data: summary30 } = useQuery({
-    queryKey: ['analytics', 'summary', '30d'],
-    queryFn: () => apiFetch<any>(`/api/analytics/summary?range=30d`),
-  })
-  const actualSavings = summary?.estimatedCostSavings ?? 0
-  const baseSavings = summary30?.estimatedCostSavings ?? 0
-  const spanDays = (() => {
-    if (!summary30?.firstRequestAt) return 30
-    // SQLite stores UTC "YYYY-MM-DD HH:MM:SS"
-    const first = new Date(summary30.firstRequestAt.replace(' ', 'T') + 'Z').getTime()
-    const days = (Date.now() - first) / 86_400_000
-    if (!Number.isFinite(days)) return 30
-    return Math.min(Math.max(days, 1 / 24), 30)
-  })()
-  const extrapolated = spanDays < 29.5
-  const savings30d = extrapolated ? baseSavings * (30 / spanDays) : baseSavings
-  const rangeLabel = range === '24h' ? '24 hours' : range === '7d' ? '7 days' : '30 days'
-  const spanLabel = spanDays >= 2 ? `${Math.round(spanDays)} days` : `${Math.max(1, Math.round(spanDays * 24))} hours`
-  const savingsHint =
-    `You actually saved $${actualSavings.toFixed(2)} over the last ${rangeLabel}. That is what the same tokens would have cost on paid APIs, priced per model. ` +
-    (extrapolated
-      ? `The number shown projects your pace from the last ${spanLabel} of data to a full 30 days.`
-      : `The number shown is your real 30-day total.`)
-
   // Pinned = the client named a specific model instead of auto-routing.
   // Honored = that model actually served it (the rest failed over).
   const pinned = summary?.pinnedRequests ?? 0
@@ -154,17 +123,12 @@ export default function AnalyticsPage() {
         <LiveEvents />
 
         {/* Summary stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <Stat label="Requests" value={summary?.totalRequests ?? 0} hint={requestsHint} />
           <Stat label="Success rate" value={`${summary?.successRate ?? 0}%`} />
           <Stat label="Input tokens" value={formatTokens(summary?.totalInputTokens)} />
           <Stat label="Output tokens" value={formatTokens(summary?.totalOutputTokens)} />
           <Stat label="Avg latency" value={`${summary?.avgLatencyMs ?? 0} ms`} />
-          {/* Priced per request at the served model's paid-API equivalent
-              rate (not a flat frontier-model rate) — see db/model-pricing.ts.
-              The value is a 30-day projection; the hover hint tells the whole
-              story (actual period amount + whether it was extrapolated). */}
-          <Stat label="Est. savings" value={`$${savings30d.toFixed(2)}`} hint={savingsHint} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -236,8 +200,7 @@ export default function AnalyticsPage() {
                         <TableHead className="text-right">Success</TableHead>
                         <TableHead className="text-right">Latency</TableHead>
                         <TableHead className="text-right">In tokens</TableHead>
-                        <TableHead className="text-right">Out tokens</TableHead>
-                        <TableHead className="text-right pr-4">Saved</TableHead>
+                        <TableHead className="text-right pr-4">Out tokens</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -250,8 +213,7 @@ export default function AnalyticsPage() {
                           <TableCell className="text-right tabular-nums">{m.successRate}%</TableCell>
                           <TableCell className="text-right tabular-nums">{m.avgLatencyMs} ms</TableCell>
                           <TableCell className="text-right tabular-nums">{formatTokens(m.totalInputTokens)}</TableCell>
-                          <TableCell className="text-right tabular-nums">{formatTokens(m.totalOutputTokens)}</TableCell>
-                          <TableCell className="text-right tabular-nums pr-4">${(m.estimatedCost ?? 0).toFixed(2)}</TableCell>
+                          <TableCell className="text-right tabular-nums pr-4">{formatTokens(m.totalOutputTokens)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

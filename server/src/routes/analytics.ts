@@ -2,7 +2,6 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import type Database from 'better-sqlite3';
 import { getDb } from '../db/index.js';
-import { FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M } from '../db/model-pricing.js';
 
 export const analyticsRouter = Router();
 
@@ -55,17 +54,15 @@ function buildPlatformFilter(
 interface SummaryResponse {
   totalRequests: number; successRate: number;
   totalInputTokens: number; totalOutputTokens: number;
-  avgLatencyMs: number; estimatedCostSavings: number;
+  avgLatencyMs: number;
   pinnedRequests: number; pinHonoredRequests: number;
-  firstRequestAt: string | null;
 }
 
 const EMPTY_SUMMARY: SummaryResponse = {
   totalRequests: 0, successRate: 0,
   totalInputTokens: 0, totalOutputTokens: 0,
-  avgLatencyMs: 0, estimatedCostSavings: 0,
+  avgLatencyMs: 0,
   pinnedRequests: 0, pinHonoredRequests: 0,
-  firstRequestAt: null,
 };
 const EMPTY_ERROR_DIST = { byCategory: [] as any[], byPlatform: [] as any[], detailed: [] as any[] };
 
@@ -79,11 +76,6 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
   if (active.length === 0) return res.json(EMPTY_SUMMARY);
   const pf = buildPlatformFilter(active, 'r');
 
-  // Savings are priced per request at the served model's paid-equivalent
-  // rate (models.paid_input_per_m / paid_output_per_m — see db/model-pricing.ts),
-  // with a modest fallback for custom/unmapped models, and only count
-  // successful requests. This is "what the same tokens would have cost on
-  // paid APIs", not a GPT-4o fantasy number.
   const stats = db.prepare(`
     SELECT
       COUNT(*) as total_requests,
@@ -91,18 +83,12 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
       SUM(r.input_tokens) as total_input_tokens,
       SUM(r.output_tokens) as total_output_tokens,
       AVG(r.latency_ms) as avg_latency_ms,
-      MIN(r.created_at) as first_request_at,
       SUM(CASE WHEN r.requested_model IS NOT NULL THEN 1 ELSE 0 END) as pinned_count,
-      SUM(CASE WHEN r.requested_model = r.model_id THEN 1 ELSE 0 END) as pin_honored_count,
-      SUM(CASE WHEN r.status = 'success' THEN
-        r.input_tokens  * COALESCE(m.paid_input_per_m,  ?) / 1000000.0 +
-        r.output_tokens * COALESCE(m.paid_output_per_m, ?) / 1000000.0
-      ELSE 0 END) as est_savings
+      SUM(CASE WHEN r.requested_model = r.model_id THEN 1 ELSE 0 END) as pin_honored_count
     FROM requests r
-    LEFT JOIN models m ON m.platform = r.platform AND m.model_id = r.model_id
     WHERE r.created_at >= ?
       ${pf.sql}
-  `).get(FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, since, ...pf.params) as any;
+  `).get(since, ...pf.params) as any;
 
   const totalRequests = stats.total_requests ?? 0;
   const successRate = totalRequests > 0 ? (stats.success_count / totalRequests) * 100 : 0;
@@ -113,15 +99,11 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
     totalInputTokens: stats.total_input_tokens ?? 0,
     totalOutputTokens: stats.total_output_tokens ?? 0,
     avgLatencyMs: Math.round(stats.avg_latency_ms ?? 0),
-    estimatedCostSavings: Math.round((stats.est_savings ?? 0) * 100) / 100,
     // Pinned = requests where the client named a specific model (not 'auto').
     // Honored = the pinned model actually served it; the difference is
     // failovers that overrode the pin.
     pinnedRequests: stats.pinned_count ?? 0,
     pinHonoredRequests: stats.pin_honored_count ?? 0,
-    // Lets the client project savings from the ACTUAL data span (a 2-day-old
-    // install shouldn't extrapolate as if the whole range had traffic).
-    firstRequestAt: stats.first_request_at ?? null,
   });
 });
 
@@ -139,29 +121,23 @@ analyticsRouter.get('/by-model', (req: Request, res: Response) => {
     SELECT
       r.platform,
       r.model_id,
-      m.display_name,
       COUNT(*) as requests,
       SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as success_rate,
       AVG(r.latency_ms) as avg_latency_ms,
       SUM(r.input_tokens) as total_input_tokens,
       SUM(r.output_tokens) as total_output_tokens,
-      SUM(CASE WHEN r.requested_model = r.model_id THEN 1 ELSE 0 END) as pinned_requests,
-      SUM(CASE WHEN r.status = 'success' THEN
-        r.input_tokens  * COALESCE(m.paid_input_per_m,  ?) / 1000000.0 +
-        r.output_tokens * COALESCE(m.paid_output_per_m, ?) / 1000000.0
-      ELSE 0 END) as est_cost
+      SUM(CASE WHEN r.requested_model = r.model_id THEN 1 ELSE 0 END) as pinned_requests
     FROM requests r
-    LEFT JOIN models m ON m.platform = r.platform AND m.model_id = r.model_id
     WHERE r.created_at >= ?
       ${pf.sql}
     GROUP BY r.platform, r.model_id
     ORDER BY requests DESC
-  `).all(FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, since, ...pf.params) as any[];
+  `).all(since, ...pf.params) as any[];
 
   res.json(rows.map(r => ({
     platform: r.platform,
     modelId: r.model_id,
-    displayName: r.display_name ?? r.model_id,
+    displayName: r.model_id,
     requests: r.requests,
     successRate: Math.round(r.success_rate * 10) / 10,
     avgLatencyMs: Math.round(r.avg_latency_ms),
@@ -169,7 +145,6 @@ analyticsRouter.get('/by-model', (req: Request, res: Response) => {
     totalOutputTokens: r.total_output_tokens ?? 0,
     // Requests this model served because the client pinned it by name.
     pinnedRequests: r.pinned_requests ?? 0,
-    estimatedCost: Math.round((r.est_cost ?? 0) * 100) / 100,
   })));
 });
 

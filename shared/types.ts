@@ -337,7 +337,6 @@ export interface AnalyticsSummary {
   totalInputTokens: number;
   totalOutputTokens: number;
   avgLatencyMs: number;
-  estimatedCostSavings: number;
 }
 
 export interface PlatformStats {

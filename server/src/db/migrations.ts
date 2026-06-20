@@ -1,7 +1,6 @@
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { initEncryptionKey } from '../lib/crypto.js';
-import { applyModelPricing } from './model-pricing.js';
 import { applyBenchmarkScores } from './benchmark-scores.js';
 import { fetchLiveBenchmarkScores } from './benchmark-scores.js';
 import { BenchmarkService } from '../services/benchmarks.js';
@@ -71,7 +70,6 @@ export function migrateDbSchema(db: Database.Database) {
   }
 
   // Non-destructive refreshes that should run every boot (updates, not resets).
-  applyModelPricing(db);
   applyBenchmarkScores(db);
   migrateQuirksV1(db);
   migrateModelsV32CommandCode(db);
