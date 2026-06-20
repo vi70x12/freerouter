@@ -6,6 +6,7 @@ import { startHealthChecker } from './services/health.js';
 import { startRequestRetentionPruner } from './services/request-retention.js';
 import { rebuildExhaustionFromDB } from './services/key-exhaustion.js';
 import { initDegradation, loadState, applyDecay, flushDirtyStates, evictGhostStates } from './services/degradation.js';
+import { captureRunningValues } from './services/feature-settings.js';
 
 /** Synchronous flush of dirty degradation states on shutdown (better-sqlite3 is sync). */
 function shutdownFlushDegradation() {
@@ -99,6 +100,9 @@ async function main() {
     }
   }, FLUSH_INTERVAL_MS);
   degradationFlushInterval.unref();
+
+  // ── Feature settings: snapshot running values for restart detection ────
+  captureRunningValues();
 
   const app = createApp();
 

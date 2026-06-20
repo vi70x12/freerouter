@@ -15,6 +15,7 @@ import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarker, containsDialectMarker } from '../lib/tool-call-rescue.js';
 import { getContextHandoffMode, recordIncomingMessages, maybeInjectContextHandoff, recordSuccessfulModel, hasPriorModel, HANDOFF_MAX_TOKENS } from '../services/context-handoff.js';
 import { publish } from '../services/events.js';
+import { getFeatureSetting } from '../services/feature-settings.js';
 
 export const proxyRouter = Router();
 
@@ -62,7 +63,7 @@ export function extractApiToken(req: Request): string | undefined {
 // Key: <api_key>:<session_hash> → model_db_id
 // This prevents model switching mid-conversation which causes hallucination
 function isStickySessionEnabled(): boolean {
-  return process.env.STICKY_SESSION_ENABLED === 'true';
+  return getFeatureSetting('sticky_session_enabled') as boolean;
 }
 const stickySessionMap = new Map<string, { modelDbId: number; lastUsed: number }>();
 const STICKY_TTL_MS = 30 * 60 * 1000; // 30 min session TTL

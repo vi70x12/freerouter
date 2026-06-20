@@ -53,3 +53,37 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     );
   }
 }
+
+// ── Feature settings ────────────────────────────────────────────────────────
+
+export interface FeatureSetting {
+  key: string;
+  label: string;
+  description: string;
+  type: 'boolean' | 'number';
+  value: boolean | number;
+  default: boolean | number;
+  min?: number;
+  max?: number;
+  effect: 'live' | 'restart';
+  group: string;
+  parentToggle?: string;
+}
+
+export interface FeatureSettingsResponse {
+  settings: FeatureSetting[];
+  pendingRestart: boolean;
+}
+
+export async function fetchFeatureSettings(): Promise<FeatureSettingsResponse> {
+  return apiFetch<FeatureSettingsResponse>('/api/settings/features');
+}
+
+export async function saveFeatureSettings(
+  updates: Record<string, boolean | number>,
+): Promise<FeatureSettingsResponse> {
+  return apiFetch<FeatureSettingsResponse>('/api/settings/features', {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
+}

@@ -95,6 +95,9 @@ Everything below is **on top of** [MLuqmanBR/api-gateway](https://github.com/MLu
 | `docs/specs/benchmark-unification/` | Composite scorer live, incremental recomputation in progress |
 | `docs/specs/reasoning-speed-fairness.md` | Reasoning tokens counted in `tokPerSec`; per-model toggle pending |
 | `docs/specs/freellmproxy-integration/` | `npm run proxy:up` zero-config deploy replacing `proxy:deploy` |
+| `docs/specs/provider-outage-fast-fail/` | Spec complete — reactive within-request provider-level skip on repeated 5xx |
+| `docs/specs/provider-health-heartbeat/` | Spec complete — proactive cross-request periodic health pings feeding degradation engine |
+| `docs/specs/global-settings-panel/` | Spec complete — dashboard Settings tab to toggle experimental features with DB persistence |
 
 ## Quick Start
 
